@@ -50,8 +50,7 @@ class DataMiner:
             "api_keys_finnhub.txt", 60, hist_constituents_path, self.indexes)
         finnhub_hist_constituents_api_miner.run()
 
-        with open('all_symbols.json', 'r') as f:
-            all_symbols = json.load(f)
+        all_symbols = get_all_symbols(constituents_path, hist_constituents_path)
 
         polygon_stock_financials_api_miner = PolygonApi("https://api.polygon.io/v2/reference/financials",
             "api_keys_polygon.txt", 5, "financials.json", all_symbols)
