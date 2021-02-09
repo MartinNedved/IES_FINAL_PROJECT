@@ -8,19 +8,19 @@ import json
 
 class DataMiner:
 
-    def __init__(SP500=True, NASDAQ=True, DJI=True):
+    def __init__(self, SP500=True, NASDAQ=True, DJI=True):
         self.SP500 = SP500
         self.NASDAQ = NASDAQ
         self.DJI = DJI
         self.indexes = []
         if SP500:
-            indexes.append("^GSPC")
+            self.indexes.append("^GSPC")
         if NASDAQ:
-            indexes.append("^NDX")
+            self.indexes.append("^NDX")
         if DJI:
-            indexes.append("^DJI")
+            self.indexes.append("^DJI")
 
-    def get_all_symbols(constituents_path, hist_constituents_path):
+    def get_all_symbols(self, constituents_path, hist_constituents_path):
         all_symbols = []
 
         with open(constituents_path, 'r') as const_f, open(hist_constituents_path, 'r') as hist_const_f:
@@ -35,48 +35,100 @@ class DataMiner:
                 if datetime.strptime(action['date'], '%Y-%m-%d').year > 1999:
                     all_symbols.append(action['symbol'])
 
-        return list(set(all_symbols))
+        return sorted(list(set(all_symbols)))
 
-    def run():
+    def run(self):
 
         constituents_path = "constituents.json"
         hist_constituents_path = "hist_constituents.json"
 
         finnhub_constituents_api_miner = FinnhubApi("https://finnhub.io/api/v1/index/constituents", 
-            "C:/Users/Martin/Desktop/api_keys_finnhub.txt", 60, constituents_path, self.indexes)
+            "api_keys_finnhub.txt", 60, constituents_path, self.indexes)
         finnhub_constituents_api_miner.run()
 
         finnhub_hist_constituents_api_miner = FinnhubApi("https://finnhub.io/api/v1/index/historical-constituents", 
-            "C:/Users/Martin/Desktop/api_keys_finnhub.txt", 60, hist_constituents_path, self.indexes)
+            "api_keys_finnhub.txt", 60, hist_constituents_path, self.indexes)
         finnhub_hist_constituents_api_miner.run()
 
-        all_symbols = get_all_symbols("constituents.json", "hist_constituents.json")
+        with open('all_symbols.json', 'r') as f:
+            all_symbols = json.load(f)
 
         polygon_stock_financials_api_miner = PolygonApi("https://api.polygon.io/v2/reference/financials",
-            "C:/Users/Martin/Desktop/api_keys_polygon.txt", 5, "financials.json", all_symbols)
+            "api_keys_polygon.txt", 5, "financials.json", all_symbols)
         polygon_stock_financials_api_miner.run()
 
+        self.__run_alpha_vantage(all_symbols, 2)
+
+    def __run_alpha_vantage(self, all_symbols, download_part=-1):
         # There is API limit of 500 requests/day, we download two datasets from this API -> 250 requests/day for each dataset
         max_requests_per_day = 250
         all_symbols_split_by_max_requests = [all_symbols[i:i + max_requests_per_day] for i in range(0, len(all_symbols), max_requests_per_day)]
 
-        counter = 0
-        for split in all_symbols_split_by_max_requests:
-            alphavantage_monthly_adjusted_api_miner = AlphaVantageApi("https://www.alphavantage.co/query",
-                "C:/Users/Martin/Desktop/api_keys_alphavantage.txt", 5, 
-                "TIME_SERIES_MONTHLY_ADJUSTED", f"time_series_monthly_adjusted_{counter}.json", symbols=split, requests_per_day=max_requests_per_day, keys_in_paralel=False)
+        alphavantage_monthly_adjusted_api_miner = AlphaVantageApi(
+                    "https://www.alphavantage.co/query",
+                    "api_keys_alphavantage.txt", 5, 
+                    "TIME_SERIES_MONTHLY_ADJUSTED", 
+                    file_name=f"time_series_monthly_adjusted_{0}.json", 
+                    symbols=None, 
+                    requests_per_day=max_requests_per_day, 
+                    keys_in_paralel=False)
+
+        alphavantage_company_overview_api_miner = AlphaVantageApi(
+                "https://www.alphavantage.co/query",
+                "api_keys_alphavantage.txt", 5, 
+                "OVERVIEW", 
+                file_name=f"overview_{0}.json", 
+                symbols=all_symbols_split_by_max_requests[0], 
+                requests_per_day=max_requests_per_day,
+                keys_in_paralel=False)
+
+        if download_part == -1:
+            for i in range(len(all_symbols_split_by_max_requests)):
+                alphavantage_monthly_adjusted_api_miner.symbols = all_symbols_split_by_max_requests[i]
+                alphavantage_monthly_adjusted_api_miner.file_name = f"time_series_monthly_adjusted_{i}.json"
+                alphavantage_monthly_adjusted_api_miner.run()
+
+                alphavantage_company_overview_api_miner.symbols = all_symbols_split_by_max_requests[i]
+                alphavantage_company_overview_api_miner.file_name = f"overview_{i}.json"
+                alphavantage_company_overview_api_miner.run()
+
+                # Waits 24hours + 5 min reserve
+                if i != len(all_symbols_split_by_max_requests):
+                    time.sleep(60*60*24 + 5*60)
+
+        else:
+            alphavantage_monthly_adjusted_api_miner.symbols = all_symbols_split_by_max_requests[download_part]
+            alphavantage_monthly_adjusted_api_miner.file_name = f"time_series_monthly_adjusted_{download_part}.json"
             alphavantage_monthly_adjusted_api_miner.run()
 
-            alphavantage_company_overview_api_miner = AlphaVantageApi("https://www.alphavantage.co/query",
-                "C:/Users/Martin/Desktop/api_keys_alphavantage.txt", 5, 
-                "OVERVIEW", f"overview_{counter}.json", symbols=all_symbols, requests_per_day=max_requests_per_day, keys_in_paralel=False)
+            alphavantage_company_overview_api_miner.symbols = all_symbols_split_by_max_requests[download_part]
+            alphavantage_company_overview_api_miner.file_name = f"overview_{download_part}.json"
             alphavantage_company_overview_api_miner.run()
 
-            counter += 1
+        # Merge (fail_)TIME_SERIES_MONTHLY_ADJUSTED and (fail_)OVERVIEW files
+        if download_part == len(all_symbols_split_by_max_requests)-1 or download_part == -1:
+            monthly_adjusted = []
+            monthly_adjusted_fail = []
+            overview = []
+            overview_fail = []
+            for i in range(len(all_symbols_split_by_max_requests)):
+                with open(f"time_series_monthly_adjusted_{i}.json", 'r') as f_monthly_adjusted, \
+                    open(f"fail_time_series_monthly_adjusted_{i}.json", 'r') as f_monthly_adjusted_fail, \
+                    open(f"overview_{i}.json", 'r') as f_overview, \
+                    open(f"fail_overview_{i}.json", 'r') as f_overview_fail:
+                    monthly_adjusted.extend(json.load(f_monthly_adjusted))
+                    monthly_adjusted_fail.extend(json.load(f_monthly_adjusted_fail))
+                    overview.extend(json.load(f_overview))
+                    overview_fail.extend(json.load(f_overview_fail))
 
-            # Waits 24hours + 5 min reserve
-            if counter != len(all_symbols_split_by_max_requests):
-                time.sleep(60*60*24 + 5*60)
+            with open("time_series_monthly_adjusted.json", 'w') as f_monthly_adjusted, \
+                open("fail_time_series_monthly_adjusted.json", 'w') as f_monthly_adjusted_fail, \
+                open("overview.json", 'w') as f_overview, \
+                open("fail_overview.json", 'w') as f_overview_fail:
+                json.dump(monthly_adjusted, f_monthly_adjusted)
+                json.dump(monthly_adjusted_fail, f_monthly_adjusted_fail)
+                json.dump(overview, f_overview)
+                json.dump(overview_fail, f_overview_fail)
 
 
 class ApiMiner:
@@ -170,6 +222,8 @@ class AlphaVantageApi(ApiMiner):
     def get_error_messages(self):
         errors = []
         errors.append({"Error Message": "Invalid API call. Please retry or visit the documentation (https://www.alphavantage.co/documentation/) for TIME_SERIES_MONTHLY_ADJUSTED."})
+        errors.append({'Error Message': 'Invalid API call. Please retry or visit the documentation (https://www.alphavantage.co/documentation/) for OVERVIEW.'})
+        errors.append({})
         errors.append({"Information": "Thank you for using Alpha Vantage! Our standard API call frequency is 5 calls per minute and 500 calls per day. Please visit https://www.alphavantage.co/premium/ if you would like to target a higher API call frequency."})
         errors.append({"Note": "Thank you for using Alpha Vantage! Our standard API call frequency is 5 calls per minute and 500 calls per day. Please visit https://www.alphavantage.co/premium/ if you would like to target a higher API call frequency."})
         return errors
