@@ -11,4 +11,4 @@ This final project compares custom investing strategies based on financial resul
   * Polygon https://polygon.io/docs saved in api_keys_polygon.txt
   
 ## Project structure
-TBD
+![alt text](https://github.com/MartinNedved/IES_FINAL_PROJECT/blob/main/project_strucutre.PNG)
