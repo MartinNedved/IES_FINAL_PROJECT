@@ -129,7 +129,6 @@ class DataMiner:
                 json.dump(overview, f_overview)
                 json.dump(overview_fail, f_overview_fail)
 
-aaa
 
 class ApiMiner:
 
