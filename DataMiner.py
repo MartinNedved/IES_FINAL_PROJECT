@@ -7,6 +7,11 @@ import math
 import json
 
 class DataMiner:
+    """Downloads financial data, company overviews, monthly adjusted prices and historical index changes
+    for selected indexes
+
+    Runs all api miners 
+    """
 
     def __init__(self, SP500=True, NASDAQ=True, DJI=True):
         self.SP500 = SP500
@@ -59,6 +64,12 @@ class DataMiner:
         self.__run_alpha_vantage(all_symbols, 2)
 
     def __run_alpha_vantage(self, all_symbols, download_part=-1):
+        """This function runs AlphaVantageApi miner because this api provider limits number of requests to 500/day
+        so there needs to be some waiting in order to sucesfully download all the data
+        
+        download_part parametr sets which part of data is downloaded, if set to -1 data are downloaded continuosly 
+        """
+
         # There is API limit of 500 requests/day, we download two datasets from this API -> 250 requests/day for each dataset
         max_requests_per_day = 250
         all_symbols_split_by_max_requests = [all_symbols[i:i + max_requests_per_day] for i in range(0, len(all_symbols), max_requests_per_day)]
@@ -104,7 +115,7 @@ class DataMiner:
             alphavantage_company_overview_api_miner.file_name = f"overview_{download_part}.json"
             alphavantage_company_overview_api_miner.run()
 
-        # Merge (fail_)TIME_SERIES_MONTHLY_ADJUSTED and (fail_)OVERVIEW files
+        # Merge (fail_)TIME_SERIES_MONTHLY_ADJUSTED and (fail_)OVERVIEW
         if download_part == len(all_symbols_split_by_max_requests)-1 or download_part == -1:
             monthly_adjusted = []
             monthly_adjusted_fail = []
@@ -129,9 +140,14 @@ class DataMiner:
                 json.dump(overview, f_overview)
                 json.dump(overview_fail, f_overview_fail)
 
-aaa
 
 class ApiMiner:
+
+    """Parent class which downloads from API services and saves them in json
+    def run() takes care of all the class processes (downloading, saving data), only this method is called from outside
+    def run_requests() downloads all the data from API
+
+    """
 
     def __init__(self, url, api_keys_path, requests_per_minute, file_name, symbols=[], requests_per_day=-1, keys_in_paralel=True):
         self.url = url
@@ -143,22 +159,26 @@ class ApiMiner:
         self.keys_in_paralel = keys_in_paralel
 
     def run_requests(self):
+        # Loads api keys from file
         with open(self.api_keys_path) as f:
             keys = f.readlines()
         keys = [x.rstrip("\n") for x in keys]
 
-        # 2 seconds added for reserve 
+        # Time interval between requests, 2 seconds added for reserve 
         if self.keys_in_paralel:
             time_interval = 62 / (self.requests_per_minute * len(keys))
         else:
             time_interval = 62 / self.requests_per_minute
 
+        # Creates list of keys, this optimizes downloading time since some providers do not check IP adrress
+        # thus more requests can be called in a minute with diferent keys
         number_of_key_usage = math.ceil(len(self.symbols) / len(keys))
         keys_cycle = keys * number_of_key_usage
         if self.requests_per_day != -1:
             if len(self.symbols) > self.requests_per_day:
                 raise Exception("There are too many requests, provide more/stronger keys or less symbols")
         
+        # Calls def requests_get() from child class, creates dict of failed and successful requests results
         counter = 0
         requests_out = {"S" : [], "F" : []}
         error_messages = self.get_error_messages()
@@ -175,9 +195,11 @@ class ApiMiner:
         return requests_out
 
     def requests_get(self, api_key, symbol=""):
+        # Calls requests.get from particular api service
         pass
 
     def get_error_messages(self):
+        # Return list of messages which makes request labeled as failed
         pass
 
     def save_to_json(self, file, file_name):
@@ -190,6 +212,7 @@ class ApiMiner:
         self.save_to_json(requests_dict["F"], f'fail_{self.file_name}')
 
 class PolygonApi(ApiMiner):
+    # Child class of ApiMiner downloads data from https://polygon.io/docs
 
     def requests_get(self, api_key, symbol=""):
         params = {
@@ -206,8 +229,10 @@ class PolygonApi(ApiMiner):
         return errors
 
 class AlphaVantageApi(ApiMiner):
+    # Child class of ApiMiner downloads data from https://www.alphavantage.co/documentation/ 
 
     def __init__(self, url, api_keys_path, requests_per_minute, function, file_name, symbols=[], requests_per_day=500, keys_in_paralel=False):
+        # Overrides parent __init__ because function is part of params
         super().__init__(url, api_keys_path, requests_per_minute, file_name, symbols, requests_per_day, keys_in_paralel)
         self.function = function
 
@@ -229,6 +254,7 @@ class AlphaVantageApi(ApiMiner):
         return errors
 
 class FinnhubApi(ApiMiner):
+    # Child class of ApiMiner downloads data from https://finnhub.io/docs/api/
 
     def requests_get(self, api_key, symbol=""):
         params = {
@@ -242,5 +268,6 @@ class FinnhubApi(ApiMiner):
         errors.append({"error":"You don't have access to this resource."})
         return errors
 
+# Runs data mining process
 data_miner = DataMiner()
 data_miner.run()
